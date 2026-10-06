@@ -1,0 +1,54 @@
+.stApp{
+background-color:#0b0f1f;
+background-image:radial-gradient(rgba(226,54,54,.28) 2px,transparent 2.5px),linear-gradient(160deg,#0b0f1f 0%,#2a0a12 60%,#000 100%);
+background-size:16px 16px,100% 100%;
+}
+h1.hero{
+position:relative;
+font-family:'Bangers',cursive;
+font-size:3rem;
+letter-spacing:3px;
+text-align:center;
+color:#f5c518;
+text-shadow:4px 4px 0 #e23636,7px 7px 0 #000;
+background:#e23636;
+background:repeating-linear-gradient(135deg,#1b3a8a 0 14px,#16307a 14px 28px);
+border:4px solid #f5c518;
+border-radius:6px;
+transform:skew(-4deg);
+padding:44px 10px 12px 10px;
+margin:20px 6px 6px 6px;
+box-shadow:8px 8px 0 #000;
+}
+h1.hero::before{
+content:"";
+position:absolute;
+top:-26px;left:50%;
+width:64px;height:64px;
+margin-left:-32px;
+transform:skew(4deg);
+background:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='48' fill='%23e23636' stroke='black' stroke-width='4'/><circle cx='50' cy='50' r='34' fill='white'/><circle cx='50' cy='50' r='24' fill='%231b3a8a'/><polygon points='50,28 56,43 72,43 59,53 64,69 50,59 36,69 41,53 28,43 44,43' fill='white'/></svg>") no-repeat center/contain;
+}
+p.sub{
+text-align:center;
+color:#f5c518;
+font-family:'Bangers',cursive;
+letter-spacing:2px;
+font-size:1.2rem;
+}
+.stButton>button,.stDownloadButton>button{
+background:#e23636;
+color:#fff;
+font-family:'Bangers',cursive;
+font-size:1.5rem;
+letter-spacing:2px;
+border:3px solid #000;
+border-radius:4px;
+transform:skew(-6deg);
+box-shadow:5px 5px 0 #f5c518;
+width:100%;
+}
+.stButton>button:active{transform:skew(-6deg) translate(3px,3px);box-shadow:2px 2px 0 #f5c518}
+div[data-baseweb="tab-list"] button{font-family:'Bangers',cursive;font-size:1.3rem;letter-spacing:2px}
+textarea,div[data-baseweb="select"]>div{border:3px solid #f5c518 !important;border-radius:4px !important}
+label p{font-family:'Bangers',cursive;font-size:1.15rem !important;letter-spacing:1.5px;color:#f5c518}
