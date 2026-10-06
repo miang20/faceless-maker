@@ -354,7 +354,131 @@ def show_result(d):
                        key="dl_" + d.name)
 
 
-cleanup_history()
+def _topic_queries():
+    t = globals().get("topic", "") or ""
+    qs = [q.strip() for q in re.split(r"[,\n]", t) if q.strip()]
+    return qs or auto_queries(globals().get("script", "") or "")
+
+
+def pixabay_clips(queries, need, work, key):
+    got, seen = [], set()
+    for rank in range(3):
+        for q in queries:
+            if len(got) >= need:
+                return got
+            try:
+                r = requests.get("https://pixabay.com/api/videos/", params={
+                    "key": key, "q": q, "per_page": 6, "safesearch": "true", "order": "popular"},
+                    timeout=20).json()
+                hits = r.get("hits", [])
+                if rank >= len(hits) or hits[rank]["id"] in seen:
+                    continue
+                h = hits[rank]
+                v = h["videos"].get("medium") or h["videos"].get("small")
+                p = work / f"px{len(got)}.mp4"
+                dl(v["url"], p, 40_000_000)
+                seen.add(h["id"])
+                got.append(p)
+            except Exception:
+                continue
+    return got
+
+
+def _img_score(im):
+    g = np.asarray(im.convert("L").resize((270, 480)), dtype=np.float32)
+    s = np.asarray(im.convert("HSV").resize((270, 480)), dtype=np.float32)[..., 1]
+    return g.std() + np.abs(np.diff(g, axis=0)).mean() * 3 + s.mean() * 0.15
+
+
+def _cover(im, W, H):
+    r = max(W / im.width, H / im.height)
+    im = im.resize((int(im.width * r) + 1, int(im.height * r) + 1), Image.LANCZOS)
+    x = (im.width - W) // 2
+    y = (im.height - H) // 2
+    return im.crop((x, y, x + W, y + H))
+
+
+def _topic_image(queries, work):
+    try:
+        key = st.secrets.get("PIXABAY_KEY", "")
+    except Exception:
+        key = ""
+    urls = []
+    for q in queries[:3]:
+        if key:
+            try:
+                r = requests.get("https://pixabay.com/api/", params={
+                    "key": key, "q": q, "image_type": "photo", "orientation": "vertical",
+                    "per_page": 6, "safesearch": "true", "order": "popular"}, timeout=20).json()
+                for h in r.get("hits", [])[:4]:
+                    u = h.get("largeImageURL") or h.get("webformatURL")
+                    if u:
+                        urls.append((u, 20))
+            except Exception:
+                pass
+        try:
+            r = requests.get("https://commons.wikimedia.org/w/api.php", params={
+                "action": "query", "format": "json", "generator": "search", "gsrsearch": q,
+                "gsrnamespace": 6, "gsrlimit": 8, "prop": "imageinfo",
+                "iiprop": "url|size|mime", "iiurlwidth": 1280}, headers=UA, timeout=15).json()
+            for p in r.get("query", {}).get("pages", {}).values():
+                ii = p["imageinfo"][0]
+                if ii.get("mime") == "image/jpeg" and ii.get("width", 0) >= 900 and ii.get("thumburl"):
+                    urls.append((ii["thumburl"], 0))
+        except Exception:
+            pass
+    best, bs = None, -1
+    for n, (u, bonus) in enumerate(urls[:14]):
+        try:
+            p = work / f"ti{n}.jpg"
+            dl(u, p, 12_000_000)
+            im = Image.open(p).convert("RGB")
+            if im.width < 600 or im.height < 600:
+                continue
+            sc = _img_score(im) + bonus
+            if sc > bs:
+                bs, best = sc, im
+        except Exception:
+            continue
+    return best
+
+
+def _video_frame(joined, work):
+    d = duration(joined)
+    best, bs, fb = None, -1, None
+    for i in range(1, 9):
+        fp = work / f"f{i}.jpg"
+        run(["ffmpeg", "-y", "-ss", d * (0.1 + 0.8 * i / 9), "-i", joined, "-frames:v", "1", "-q:v", "2", fp])
+        im = Image.open(fp).convert("RGB")
+        fb = fb or im
+        m = np.asarray(im.convert("L"), dtype=np.float32).mean()
+        if m < 35 or m > 215:
+            continue
+        sc = _img_score(im)
+        if sc > bs:
+            bs, best = sc, im
+    return best or fb
+
+
+def make_thumb(joined, title, work, out, queries=None):
+    W, H = 1080, 1920
+    im = None
+    try:
+        im = _topic_image(queries or _topic_queries(), work)
+    except Exception:
+        im = None
+    if im is None:
+        im = _video_frame(joined, work)
+    im = _cover(im, W, H)
+    im = ImageEnhance.Contrast(ImageEnhance.Color(im).enhance(1.3)).enhance(1.12)
+    ov = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    od = ImageDraw.Draw(ov)
+    for yy in range(int(H * 0.42)):
+        a = int(170 * (1 - yy / (H * 0.42)))
+        od.line([(0, yy), (W, yy)], fill=(0, 0, 0, a))
+    im = Image.alpha_composite(im.convert("RGBA"
+                                          
+                                          cleanup_history()
 st.markdown(f"<h1 class='hero'>{APP_NAME}</h1><p class='sub'>Script + clips daalo, Short tayyar</p>",
             unsafe_allow_html=True)
 tab1, tab2 = st.tabs(["CREATE", "HISTORY"])
