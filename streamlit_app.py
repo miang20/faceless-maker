@@ -1,8 +1,9 @@
 import streamlit as st
-import asyncio, re, random, shutil, subprocess, tempfile, time, json, zipfile
+import asyncio, re, random, shutil, subprocess, tempfile, time, zipfile
 from pathlib import Path
 from collections import Counter
 import numpy as np
+import requests
 from PIL import Image, ImageDraw, ImageFont, ImageEnhance
 import edge_tts
 
@@ -10,6 +11,7 @@ APP_NAME = "FAISAL STUDIO"
 HIST = Path("/tmp/fs_history")
 HIST.mkdir(exist_ok=True)
 FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+UA = {"User-Agent": "FaisalStudio/1.0 (streamlit app)"}
 
 st.set_page_config(page_title=APP_NAME, page_icon="🛡️", layout="centered")
 st.markdown("""
@@ -22,20 +24,23 @@ p.sub{text-align:center;color:#ddd;margin-top:0}
 .stButton>button,.stDownloadButton>button{background:#e23636;color:#fff;font-weight:700;
 border:2px solid #f5c518;border-radius:10px;width:100%;font-family:'Bangers',cursive;font-size:1.3rem;letter-spacing:1px}
 </style>""", unsafe_allow_html=True)
+try:
+    st.markdown("<style>" + (Path(__file__).parent / ".streamlit" / "style.css").read_text() + "</style>",
+                unsafe_allow_html=True)
+except Exception:
+    pass
 
 
-st.markdown("<style>" + (Path(__file__).parent / ".streamlit" / "style.css").read_text() + "</style>", unsafe_allow_html=True)
 @st.cache_data(ttl=21600, show_spinner=False)
 def bg_pool():
-    import requests
     urls = []
-    for q in ["Iron Man cosplay", "Spider-Man cosplay", "Captain America cosplay", "Thor cosplay", "Black Panther cosplay", "Hulk cosplay", "Marvel cosplay"]:
+    for q in ["Iron Man cosplay", "Spider-Man cosplay", "Captain America cosplay", "Thor cosplay",
+              "Black Panther cosplay", "Hulk cosplay", "Marvel cosplay"]:
         try:
             r = requests.get("https://commons.wikimedia.org/w/api.php", params={
                 "action": "query", "format": "json", "generator": "search", "gsrsearch": q,
                 "gsrnamespace": 6, "gsrlimit": 25, "prop": "imageinfo",
-                "iiprop": "url|size|mime", "iiurlwidth": 1080},
-                headers={"User-Agent": "FaisalStudio/1.0 (streamlit app)"}, timeout=15).json()
+                "iiprop": "url|size|mime", "iiurlwidth": 1080}, headers=UA, timeout=15).json()
             for p in r.get("query", {}).get("pages", {}).values():
                 ii = p["imageinfo"][0]
                 if ii.get("mime") == "image/jpeg" and ii.get("height", 0) > ii.get("width", 1) * 1.1 and ii.get("thumburl"):
@@ -52,6 +57,8 @@ try:
         st.markdown("<style>.stApp{background-image:linear-gradient(rgba(0,0,0,.5),rgba(0,0,0,.78)),url('" + _u + "') !important;background-size:cover !important;background-position:center top !important;background-attachment:fixed !important}</style>", unsafe_allow_html=True)
 except Exception:
     pass
+
+
 def cleanup_history():
     now = time.time()
     for d in HIST.iterdir():
@@ -85,6 +92,90 @@ def mask(w):
     return w[0] + re.sub(r"[A-Za-z]", "*", w[1:-1]) + w[-1]
 
 
+STOP = set("the and but with this that have from what when your just like they there their about would could into then than them were been will does much even only really more some very over also back still here where while those these which because every nothing anything everything something nature town nobody".split())
+
+
+def keywords(script):
+    ws = [w for w in re.findall(r"[a-z]{4,}", script.lower()) if w not in STOP and mask(w) == w]
+    return [w for w, _ in Counter(ws).most_common(5)]
+
+
+def auto_queries(script):
+    kw = keywords(script)
+    qs = []
+    if len(kw) >= 2:
+        qs.append(kw[0] + " " + kw[1])
+    qs += kw
+    return qs or ["nature"]
+
+
+def dl(url, path, limit=45_000_000):
+    with requests.get(url, stream=True, timeout=30, headers=UA) as r:
+        r.raise_for_status()
+        n = 0
+        with open(path, "wb") as f:
+            for ch in r.iter_content(1 << 16):
+                n += len(ch)
+                if n > limit:
+                    raise RuntimeError("file too big")
+                f.write(ch)
+
+
+def pixabay_clips(queries, need, work, key):
+    got = []
+    for q in queries:
+        if len(got) >= need:
+            break
+        try:
+            r = requests.get("https://pixabay.com/api/videos/", params={
+                "key": key, "q": q, "per_page": 12, "safesearch": "true"}, timeout=20).json()
+            hits = r.get("hits", [])
+            random.shuffle(hits)
+            for h in hits[:2]:
+                v = h["videos"].get("medium") or h["videos"].get("small")
+                p = work / f"px{len(got)}.mp4"
+                try:
+                    dl(v["url"], p, 40_000_000)
+                    got.append(p)
+                except Exception:
+                    continue
+                if len(got) >= need:
+                    break
+        except Exception:
+            pass
+    return got
+
+
+def commons_clips(queries, need, work):
+    got = []
+    for q in queries:
+        if len(got) >= need:
+            break
+        try:
+            r = requests.get("https://commons.wikimedia.org/w/api.php", params={
+                "action": "query", "format": "json", "generator": "search",
+                "gsrsearch": q + " filetype:video", "gsrnamespace": 6, "gsrlimit": 10,
+                "prop": "imageinfo", "iiprop": "url|size|mime"}, headers=UA, timeout=20).json()
+            pages = list(r.get("query", {}).get("pages", {}).values())
+            random.shuffle(pages)
+            for pg in pages[:3]:
+                ii = pg["imageinfo"][0]
+                mime = ii.get("mime", "")
+                if (mime.startswith("video") or mime == "application/ogg") and ii.get("size", 0) < 35_000_000:
+                    ext = Path(ii["url"]).suffix or ".webm"
+                    p = work / f"wm{len(got)}{ext}"
+                    try:
+                        dl(ii["url"], p, 35_000_000)
+                        got.append(p)
+                    except Exception:
+                        continue
+                    if len(got) >= need:
+                        break
+        except Exception:
+            pass
+    return got
+
+
 async def _tts(text, voice, rate, out):
     try:
         c = edge_tts.Communicate(text, voice, rate=rate, boundary="WordBoundary")
@@ -115,7 +206,7 @@ def make_ass(words, W, H, path):
         "Shadow,Alignment,MarginL,MarginR,MarginV,Encoding\n"
         "Style: Default,DejaVu Sans,%d,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,%d,0,2,40,40,%d,1\n\n"
         "[Events]\nFormat: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text\n"
-    ) % (W, H, fs, max(3, fs // 14), int(H * 0.28))
+    ) % (W, H, fs, max(3, fs // 14), int(H * 0.20))
     chunks, cur = [], []
     for w in words:
         cur.append(w)
@@ -138,9 +229,31 @@ def make_ass(words, W, H, path):
     Path(path).write_text(head + "\n".join(lines), encoding="utf-8")
 
 
+def detect_crop(p, cd):
+    try:
+        ss = min(1.0, cd / 3)
+        r = subprocess.run(["ffmpeg", "-ss", str(ss), "-t", "2", "-i", str(p), "-vf",
+                            "cropdetect=limit=24:round=2:reset=0", "-f", "null", "-"],
+                           capture_output=True, text=True)
+        m = re.findall(r"crop=(\d+):(\d+):(\d+):(\d+)", r.stderr)
+        if m:
+            w, h, x, y = map(int, m[-1])
+            if w >= 200 and h >= 200:
+                return f"crop={w}:{h}:{x}:{y},"
+    except Exception:
+        pass
+    return ""
+
+
 def build_video(clips, adur, W, H, work, audio, out):
-    info = [(c, duration(c)) for c in clips]
-    info = [x for x in info if x[1] > 0.5]
+    info = []
+    for c in clips:
+        cd = duration(c)
+        if cd > 0.5:
+            lo, hi = 0.2, cd - 0.7
+            if hi - lo < 1.0:
+                lo, hi = 0.0, cd
+            info.append((c, lo, hi, detect_crop(c, cd)))
     if not info:
         raise RuntimeError("Clips read nahi hui, dobara upload karo")
     segs, t, k, order = [], 0.0, 0, []
@@ -148,11 +261,11 @@ def build_video(clips, adur, W, H, work, audio, out):
         if not order:
             order = info[:]
             random.shuffle(order)
-        c, cd = order.pop()
-        seg = min(random.uniform(2.0, 3.2), cd)
-        start = random.uniform(0, max(0, cd - seg))
+        c, lo, hi, crop = order.pop()
+        seg = min(random.uniform(2.0, 3.2), hi - lo)
+        start = random.uniform(lo, max(lo, hi - seg))
         z = 1.0 if k % 2 == 0 else 1.22
-        vf = f"scale={int(W*z)}:{int(H*z)}:force_original_aspect_ratio=increase,crop={W}:{H},fps=30,setsar=1"
+        vf = f"{crop}scale={int(W*z)}:{int(H*z)}:force_original_aspect_ratio=increase,crop={W}:{H},fps=30,setsar=1"
         if k > 0 and k % 3 == 0:
             vf += ",eq=brightness=0.12:enable='lt(t,0.12)'"
         sp = work / f"seg{k}.mp4"
@@ -173,45 +286,51 @@ def build_video(clips, adur, W, H, work, audio, out):
 
 def make_thumb(joined, title, work, out):
     d = duration(joined)
-    best, bs = None, -1
-    for i in range(1, 7):
+    best, bs, fallback = None, -1, None
+    for i in range(1, 9):
         fp = work / f"f{i}.jpg"
-        run(["ffmpeg", "-y", "-ss", d * i / 7, "-i", joined, "-frames:v", "1", "-q:v", "2", fp])
+        run(["ffmpeg", "-y", "-ss", d * (0.1 + 0.8 * i / 9), "-i", joined, "-frames:v", "1", "-q:v", "2", fp])
         im = Image.open(fp).convert("RGB")
-        a = np.asarray(im.convert("L"), dtype=np.float32)
-        score = a.std() + np.abs(np.diff(a, axis=0)).mean() * 3
+        fallback = fallback or im
+        g = np.asarray(im.convert("L"), dtype=np.float32)
+        if g.mean() < 35 or g.mean() > 215:
+            continue
+        score = g.std() + np.abs(np.diff(g, axis=0)).mean() * 3
         if score > bs:
             bs, best = score, im
-    im = ImageEnhance.Contrast(ImageEnhance.Color(best).enhance(1.3)).enhance(1.15)
+    im = best or fallback
+    im = ImageEnhance.Contrast(ImageEnhance.Color(im).enhance(1.35)).enhance(1.15)
     W, H = im.size
     ov = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-    ImageDraw.Draw(ov).rectangle([0, 0, W, int(H * 0.42)], fill=(0, 0, 0, 120))
+    ImageDraw.Draw(ov).rectangle([0, 0, W, int(H * 0.38)], fill=(0, 0, 0, 130))
     im = Image.alpha_composite(im.convert("RGBA"), ov).convert("RGB")
-    words = re.sub(r"#\w+", "", title).upper().split()[:5]
+    words = [mask(w) for w in re.sub(r"#\w+", "", title).upper().split()][:4]
     rows = [" ".join(words[i:i + 2]) for i in range(0, len(words), 2)]
-    font = ImageFont.truetype(FONT, int(W * 0.12))
+    font = ImageFont.truetype(FONT, int(W * 0.13))
     dr = ImageDraw.Draw(im)
-    y = int(H * 0.06)
-    for r in rows:
+    y = int(H * 0.05)
+    for n, r in enumerate(rows):
         w = dr.textlength(r, font=font)
-        dr.text(((W - w) / 2, y), r, font=font, fill=(255, 220, 0), stroke_width=8, stroke_fill=(0, 0, 0))
-        y += int(W * 0.15)
+        col = (255, 220, 0) if n % 2 == 0 else (255, 60, 60)
+        dr.text(((W - w) / 2, y), r, font=font, fill=col, stroke_width=8, stroke_fill=(0, 0, 0))
+        y += int(W * 0.16)
     im.save(out, quality=92)
 
 
-def make_meta(script):
+def make_meta(script, custom_title):
     sents = re.split(r"(?<=[.!?])\s+", script.strip())
-    title = " ".join(mask(w) for w in (sents[0] if sents else script).strip().rstrip(".!?").split())
-    if len(title) > 70:
-        title = title[:67].rsplit(" ", 1)[0] + "..."
-    stop = set("the and but with this that have from what when your just like they there their about would could into then than them were been will".split())
-    ws = [w for w in re.findall(r"[a-z]{4,}", script.lower()) if w not in stop and mask(w) == w]
-    tags = ["#" + w for w, _ in Counter(ws).most_common(5)]
+    if custom_title.strip():
+        title = custom_title.strip()
+    else:
+        title = " ".join(mask(w) for w in (sents[0] if sents else script).strip().rstrip(".!?").split())
+        if len(title) > 70:
+            title = title[:67].rsplit(" ", 1)[0] + "..."
+    tags = ["#" + w for w in keywords(script)]
     desc = " ".join(mask(w) for w in " ".join(sents[:2]).split()) + "\n\n" + " ".join(tags + ["#shorts"])
     return title + " #shorts", desc
 
 
-def save_result(work, final, thumb, title, desc):
+def save_result(final, thumb, title, desc):
     d = HIST / time.strftime("%Y%m%d-%H%M%S")
     d.mkdir()
     shutil.copy(final, d / "video.mp4")
@@ -246,15 +365,19 @@ VOICES = {"Andrew (US)": "en-US-AndrewNeural", "Guy (US)": "en-US-GuyNeural",
 
 with tab1:
     script = st.text_area("Script", height=220, placeholder="Apni script yahan paste karo")
-    files = st.file_uploader("Clips (around 10)", type=["mp4", "mov", "webm", "mkv"],
+    files = st.file_uploader("Clips (apni, around 10)", type=["mp4", "mov", "webm", "mkv"],
                              accept_multiple_files=True)
+    ctitle = st.text_input("Thumbnail title (2-3 words, optional)", placeholder="EARTH JUST SPLIT")
+    topic = st.text_input("Stock search words (optional, comma se)", placeholder="flood, earthquake, tornado")
+    extra = st.slider("Extra stock clips (Pixabay + Wikimedia)", 0, 10, 4)
     c1, c2, c3 = st.columns(3)
     voice = c1.selectbox("Voice", list(VOICES))
     speed = c2.slider("Speed %", -10, 30, 8)
     qual = c3.selectbox("Quality", ["Fast 720p", "HD 1080p"])
     if st.button("MAKE SHORT"):
-        if not script.strip() or not files:
-            st.error("Script aur clips dono chahiye")
+        n_extra = int(extra)
+        if not script.strip() or (not files and n_extra == 0):
+            st.error("Script chahiye, aur clips ya extra stock clips")
         else:
             W, H = (720, 1280) if qual.startswith("Fast") else (1080, 1920)
             work = Path(tempfile.mkdtemp())
@@ -265,6 +388,7 @@ with tab1:
                     p = work / f"clip{i}{Path(f.name).suffix}"
                     p.write_bytes(f.getbuffer())
                     clips.append(p)
+                n_own = len(clips)
                 text = " ".join(script.split())
                 bar.progress(10, text="Voiceover ban rahi hai...")
                 audio = work / "voice.mp3"
@@ -275,14 +399,34 @@ with tab1:
                     per = adur / len(toks)
                     words = [(t, i * per, (i + 1) * per) for i, t in enumerate(toks)]
                 make_ass(words, W, H, work / "subs.ass")
-                bar.progress(30, text="Video edit ho rahi hai (thora time lagega)...")
+                if n_extra > 0:
+                    bar.progress(22, text="Stock clips dhoond rahi hai...")
+                    qs = [q.strip() for q in re.split(r"[,\n]", topic) if q.strip()] or auto_queries(script)
+                    key = ""
+                    try:
+                        key = st.secrets.get("PIXABAY_KEY", "")
+                    except Exception:
+                        key = ""
+                    n_cm = n_extra // 3
+                    n_px = n_extra - n_cm
+                    if key:
+                        clips += pixabay_clips(qs, n_px, work, key)
+                    else:
+                        st.warning("Pixabay key nahi mili, sirf Wikimedia use hui")
+                        n_cm = n_extra
+                    clips += commons_clips(qs, n_cm, work)
+                    st.info(f"{len(clips) - n_own} stock clips add hui")
+                if not clips:
+                    raise RuntimeError("Koi clip nahi mili")
+                bar.progress(35, text="Video edit ho rahi hai (thora time lagega)...")
                 final = work / "final.mp4"
                 joined = build_video(clips, adur, W, H, work, audio, final)
                 bar.progress(85, text="Thumbnail aur title...")
-                title, desc = make_meta(script)
+                title, desc = make_meta(script, ctitle)
+                tt = ctitle.strip() or " ".join(keywords(script)[:2]) or "WATCH THIS"
                 thumb = work / "thumb.jpg"
-                make_thumb(joined, title, work, thumb)
-                st.session_state["last"] = str(save_result(work, final, thumb, title, desc))
+                make_thumb(joined, tt, work, thumb)
+                st.session_state["last"] = str(save_result(final, thumb, title, desc))
                 bar.progress(100, text="Ho gaya!")
             except Exception as e:
                 st.error(f"Masla aaya: {e}")
