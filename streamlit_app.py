@@ -25,6 +25,33 @@ border:2px solid #f5c518;border-radius:10px;width:100%;font-family:'Bangers',cur
 
 
 st.markdown("<style>" + (Path(__file__).parent / ".streamlit" / "style.css").read_text() + "</style>", unsafe_allow_html=True)
+@st.cache_data(ttl=21600, show_spinner=False)
+def bg_pool():
+    import requests
+    urls = []
+    for q in ["Iron Man cosplay", "Spider-Man cosplay", "Captain America cosplay", "Thor cosplay", "Black Panther cosplay", "Hulk cosplay", "Marvel cosplay"]:
+        try:
+            r = requests.get("https://commons.wikimedia.org/w/api.php", params={
+                "action": "query", "format": "json", "generator": "search", "gsrsearch": q,
+                "gsrnamespace": 6, "gsrlimit": 25, "prop": "imageinfo",
+                "iiprop": "url|size|mime", "iiurlwidth": 1080},
+                headers={"User-Agent": "FaisalStudio/1.0 (streamlit app)"}, timeout=15).json()
+            for p in r.get("query", {}).get("pages", {}).values():
+                ii = p["imageinfo"][0]
+                if ii.get("mime") == "image/jpeg" and ii.get("height", 0) > ii.get("width", 1) * 1.1 and ii.get("thumburl"):
+                    urls.append(ii["thumburl"])
+        except Exception:
+            pass
+    return urls
+
+
+try:
+    _pool = bg_pool()
+    if _pool:
+        _u = random.choice(_pool)
+        st.markdown("<style>.stApp{background-image:linear-gradient(rgba(0,0,0,.5),rgba(0,0,0,.78)),url('" + _u + "') !important;background-size:cover !important;background-position:center top !important;background-attachment:fixed !important}</style>", unsafe_allow_html=True)
+except Exception:
+    pass
 def cleanup_history():
     now = time.time()
     for d in HIST.iterdir():
