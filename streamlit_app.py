@@ -24,8 +24,7 @@ border:2px solid #f5c518;border-radius:10px;width:100%;font-family:'Bangers',cur
 </style>""", unsafe_allow_html=True)
 
 
-st.markdown("<style>" + (Path(__file__).parent / "style.css").read_text() + "</style>", unsafe_allow_html=True)
-
+st.markdown("<style>" + (Path(__file__).parent / ".streamlit" / "style.css").read_text() + "</style>", unsafe_allow_html=True)
 def cleanup_history():
     now = time.time()
     for d in HIST.iterdir():
