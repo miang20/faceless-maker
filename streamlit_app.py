@@ -476,9 +476,41 @@ def make_thumb(joined, title, work, out, queries=None):
     for yy in range(int(H * 0.42)):
         a = int(170 * (1 - yy / (H * 0.42)))
         od.line([(0, yy), (W, yy)], fill=(0, 0, 0, a))
-    im = Image.alpha_composite(im.convert("RGBA"
+    im = Image.alpha_composite(im.convert("RGBA"), ov).convert("RGB")
+    words = [mask(w) for w in re.sub(r"#\w+", "", title).upper().split()][:4]
+    rows = [" ".join(words[i:i + 2]) for i in range(0, len(words), 2)] or ["WATCH THIS"]
+    dr = ImageDraw.Draw(im)
+    size = 170
+    while size > 40:
+        font = ImageFont.truetype(FONT, size)
+        if max(dr.textlength(r, font=font) for r in rows) <= W * 0.9:
+            break
+        size -= 6
+    y = int(H * 0.06)
+    for n, r in enumerate(rows):
+        w = dr.textlength(r, font=font)
+        col = (255, 220, 0) if n % 2 == 0 else (255, 60, 60)
+        dr.text(((W - w) / 2, y), r, font=font, fill=col,
+                stroke_width=max(5, size // 14), stroke_fill=(0, 0, 0))
+        y += int(size * 1.2)
+    im.save(out, quality=92)
+
+
+def make_meta(script, custom_title):
+    sents = re.split(r"(?<=[.!?])\s+", script.strip())
+    if custom_title.strip():
+        title = custom_title.strip()
+    else:
+        title = " ".join(mask(w) for w in (sents[0] if sents else script).strip().rstrip(".!?").split())
+        if len(title) > 70:
+            title = title[:67].rsplit(" ", 1)[0] + "..."
+    base = [q.strip() for q in re.split(r"[,\n]", globals().get("topic", "") or "") if q.strip()] or keywords(script)
+    tags = ["#" + re.sub(r"[^a-z0-9]", "", q.lower()) for q in base[:5]]
+    tags = [t for t in tags if len(t) > 2]
+    desc = " ".join(mask(w) for w in " ".join(sents[:2]).split()) + "\n\n" + " ".join(tags + ["#shorts"])
+    return title + " #shorts", desc
                                           
-                                          cleanup_history()
+cleanup_history()
 st.markdown(f"<h1 class='hero'>{APP_NAME}</h1><p class='sub'>Script + clips daalo, Short tayyar</p>",
             unsafe_allow_html=True)
 tab1, tab2 = st.tabs(["CREATE", "HISTORY"])
